@@ -13,8 +13,10 @@ module Course.Applicative(
 , sequence
 , replicateA
 , filtering
+, filtering47
 , return
 , fail
+, traverse'
 , (>>)
 ) where
 
@@ -61,8 +63,8 @@ infixl 4 <*>
   (a -> b)
   -> f a
   -> f b
-(<$>) =
-  error "todo: Course.Applicative#(<$>)"
+(<$>) f fA =
+  pure f <*> fA
 
 -- | Insert into Id.
 --
@@ -75,13 +77,13 @@ instance Applicative Id where
     a
     -> Id a
   pure =
-    error "todo: Course.Applicative pure#instance Id"
+    Id
   (<*>) :: 
     Id (a -> b)
     -> Id a
     -> Id b
-  (<*>) =
-    error "todo: Course.Applicative (<*>)#instance Id"
+  (<*>) (Id f) (Id a) =
+    pure $ f a
 
 -- | Insert into a List.
 --
@@ -94,13 +96,14 @@ instance Applicative List where
     a
     -> List a
   pure =
-    error "todo: Course.Applicative pure#instance List"
+    (:. Nil)
   (<*>) ::
     List (a -> b)
     -> List a
     -> List b
-  (<*>) =
-    error "todo: Course.Apply (<*>)#instance List"
+  (<*>) fs as =
+    flatMap (`map` as) fs
+    --flatten $ foldRight (\f b -> (f <$> as) :. b) Nil fs
 
 -- | Insert into an Optional.
 --
@@ -119,13 +122,13 @@ instance Applicative Optional where
     a
     -> Optional a
   pure =
-    error "todo: Course.Applicative pure#instance Optional"
+    Full
   (<*>) ::
     Optional (a -> b)
     -> Optional a
     -> Optional b
   (<*>) =
-    error "todo: Course.Apply (<*>)#instance Optional"
+    applyOptional
 
 -- | Insert into a constant function.
 --
@@ -150,13 +153,13 @@ instance Applicative ((->) t) where
     a
     -> ((->) t a)
   pure =
-    error "todo: Course.Applicative pure#((->) t)"
+    const
   (<*>) ::
     ((->) t (a -> b))
     -> ((->) t a)
     -> ((->) t b)
-  (<*>) =
-    error "todo: Course.Apply (<*>)#instance ((->) t)"
+  (<*>) fAB fA =
+    \t -> fAB t (fA t)
 
 
 -- | Apply a binary function in the environment.
@@ -184,8 +187,8 @@ lift2 ::
   -> f a
   -> f b
   -> f c
-lift2 =
-  error "todo: Course.Applicative#lift2"
+lift2 f fA fB =
+  f <$> fA <*> fB
 
 -- | Apply a ternary function in the environment.
 --
@@ -216,8 +219,8 @@ lift3 ::
   -> f b
   -> f c
   -> f d
-lift3 =
-  error "todo: Course.Applicative#lift3"
+lift3 f fA fB fC =
+  f <$> fA <*> fB <*> fC
 
 -- | Apply a quaternary function in the environment.
 --
@@ -249,8 +252,8 @@ lift4 ::
   -> f c
   -> f d
   -> f e
-lift4 =
-  error "todo: Course.Applicative#lift4"
+lift4 f fA fB fC fD =
+  f <$> fA <*> fB <*> fC <*> fD
 
 -- | Apply, discarding the value of the first argument.
 -- Pronounced, right apply.
@@ -275,8 +278,8 @@ lift4 =
   f a
   -> f b
   -> f b
-(*>) =
-  error "todo: Course.Applicative#(*>)"
+(*>) fA fB =
+  ((flip const) <$> fA) <*> fB
 
 -- | Apply, discarding the value of the second argument.
 -- Pronounced, left apply.
@@ -301,8 +304,8 @@ lift4 =
   f b
   -> f a
   -> f b
-(<*) =
-  error "todo: Course.Applicative#(<*)"
+(<*) fB fA =
+  (const <$> fB) <*> fA
 
 -- | Sequences a list of structures to a structure of list.
 --
@@ -325,7 +328,7 @@ sequence ::
   List (f a)
   -> f (List a)
 sequence =
-  error "todo: Course.Applicative#sequence"
+  foldRight (lift2 (:.)) (pure Nil)
 
 -- | Replicate an effect a given number of times.
 --
@@ -348,8 +351,8 @@ replicateA ::
   Int
   -> f a
   -> f (List a)
-replicateA =
-  error "todo: Course.Applicative#replicateA"
+replicateA n as =
+  sequence (replicate n as)
 
 -- | Filter a list with a predicate that produces an effect.
 --
@@ -376,8 +379,36 @@ filtering ::
   (a -> f Bool)
   -> List a
   -> f (List a)
-filtering =
-  error "todo: Course.Applicative#filtering"
+--filtering =
+--  error "todo: Course.Applicative#filtering"
+-- traverse :; (a -> f b) -> t a -> f (t b)
+-- filterin :: (a -> f b) -> t a -> f (t a)
+-- sequence :: t (f a) -> f (t a)
+
+filter' :: (a -> Bool) -> List a -> List a
+filter' p =
+  foldRight (\a b -> if p a then a :. b else b) Nil
+
+filtering47 :: Applicative f => (a -> f Bool) -> List a -> f (List a)
+filtering47 p =
+  foldRight (\a -> lift2 (\b -> if b then (a :.) else id) (p a)) (pure Nil)
+
+traverse' :: Applicative f => (a -> f b) -> List a -> f (List b)
+traverse' f = sequence . (<$>) f
+
+thing :: Applicative f => (a -> b) -> f a -> f (a, b)
+thing f as = (\a -> (a, f a)) <$> as
+
+addBool :: Applicative f => (a -> f Bool) -> List a -> f (List (Bool, a))
+addBool f as =
+  traverse' (\a -> lift2 (,) (f a) (pure a)) as
+
+removeBool :: List (Bool, a) -> List a
+removeBool =
+  (<$>) snd . filter fst
+
+filtering f =
+  (<$>) removeBool . addBool f 
 
 -----------------------
 -- SUPPORT LIBRARIES --
